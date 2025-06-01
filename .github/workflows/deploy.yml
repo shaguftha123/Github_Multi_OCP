@@ -1,22 +1,33 @@
-name: Deploy OpenShift Config and Secrets
+name: Build and Deploy to OpenShift
 
 on:
   push:
     branches:
-      - "**"
-  pull_request:
-    branche;s:
-      - "**"         # Testing
+      - main
+
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     env:
-      KUBECONFIG: ${{ secrets.KUBECONFIG }}
+      KUBECONFIG: ${{ secrets.KUBECONFIG }}  # Must contain your kubeconfig YAML contents
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
 
       - name: Install OpenShift CLI
         run: |
@@ -26,16 +37,28 @@ jobs:
 
       - name: Setup kubeconfig
         run: |
+          echo "${KUBECONFIG}" > kubeconfig
           mkdir -p ~/.kube
-          echo "${KUBECONFIG}" > ~/.kube/config
+          cp kubeconfig ~/.kube/config
 
       - name: Apply shared ConfigMap
         run: |
           oc apply -f config/ocp_config_mapping.yaml
 
+      - name: Determine environment from branch name
+        id: env
+        run: |
+          # Example logic: default to dev unless you use feature/qa or feature/prod
+          BRANCH="${GITHUB_REF##*/}"
+          if [[ "$BRANCH" =~ qa ]]; then
+            echo "env=qa" >> $GITHUB_OUTPUT
+          elif [[ "$BRANCH" =~ prod ]]; then
+            echo "env=prod" >> $GITHUB_OUTPUT
+          else
+            echo "env=dev" >> $GITHUB_OUTPUT
+          fi
+
       - name: Apply environment-specific secrets
         run: |
-          # Extract environment from branch name: feature/dev/xyz → dev
-          ENV=$(echo "${GITHUB_REF##*/}" | grep -Eo 'dev|qa|prod' || echo "dev")
-          echo "Detected environment: $ENV"
-          oc
+          echo "Applying secrets for ${{ steps.env.outputs.env }}"
+          oc apply -f config/${{ steps.env.outputs.env }}/secrets.yaml
