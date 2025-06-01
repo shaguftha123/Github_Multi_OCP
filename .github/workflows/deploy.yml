@@ -6,8 +6,7 @@ on:
       - "**"
   pull_request:
     branche;s:
-      - "**"         # Also runs on PRs targeting main
-
+      - "**"         # Testing
 jobs:
   deploy:
     runs-on: ubuntu-latest
